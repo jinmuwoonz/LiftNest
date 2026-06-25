@@ -1,0 +1,113 @@
+class Exercise {
+  final int? id;
+  final String name;
+  final String? description;
+
+  // Target weight
+  final double? targetWeightKg;
+  final double? targetWeightLb;
+
+  // Workout config
+  final int? sets;
+  final int? repetitions;
+  final int? restTimeSeconds; // rest time in seconds
+
+  // Bar config
+  /// true  → two independent bars, each must reach [targetWeightKg];
+  ///         calculator will output "not enough" if inventory is insufficient for both.
+  /// false → single bar reaching [targetWeightKg] in total.
+  final bool isDualBar;
+  final bool poolInventories; // whether to pool all inventories
+  final bool includeBarWeight; // whether to subtract bar weight from target
+  final double? barWeightKg;
+  final double? barWeightLb;
+
+  const Exercise({
+    this.id,
+    required this.name,
+    this.description,
+    this.targetWeightKg,
+    this.targetWeightLb,
+    this.sets,
+    this.repetitions,
+    this.restTimeSeconds,
+    this.isDualBar = true,
+    this.includeBarWeight = false,
+    this.poolInventories = true,
+    this.barWeightKg,
+    this.barWeightLb,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      if (id != null) 'id': id,
+      'name': name,
+      'description': description,
+      'target_weight_kg': targetWeightKg,
+      'target_weight_lb': targetWeightLb,
+      'sets': sets,
+      'repetition': repetitions,
+      'rest_time': restTimeSeconds,
+      'is_dual_bar': isDualBar ? 1 : 0,
+      'include_bar_weight': includeBarWeight ? 1 : 0,
+      'pool_inventories': poolInventories ? 1 : 0,
+      'bar_weight_kg': barWeightKg,
+      'bar_weight_lb': barWeightLb,
+    };
+  }
+
+  factory Exercise.fromMap(Map<String, dynamic> map) {
+    return Exercise(
+      id: map['id'] as int?,
+      name: map['name'] as String,
+      description: map['description'] as String?,
+      targetWeightKg: map['target_weight_kg'] as double?,
+      targetWeightLb: map['target_weight_lb'] as double?,
+      sets: map['sets'] as int?,
+      repetitions: map['repetition'] as int?,
+      restTimeSeconds: map['rest_time'] as int?,
+      isDualBar: (map['is_dual_bar'] as int? ?? 1) == 1,
+      includeBarWeight: (map['include_bar_weight'] as int? ?? 0) == 1,
+      poolInventories: (map['pool_inventories'] as int? ?? 1) == 1,
+      barWeightKg: map['bar_weight_kg'] as double?,
+      barWeightLb: map['bar_weight_lb'] as double?,
+    );
+  }
+
+  Exercise copyWith({
+    int? id,
+    String? name,
+    String? description,
+    double? targetWeightKg,
+    double? targetWeightLb,
+    int? sets,
+    int? repetitions,
+    int? restTimeSeconds,
+    bool? isDualBar,
+    bool? includeBarWeight,
+    bool? poolInventories,
+    double? barWeightKg,
+    double? barWeightLb,
+  }) {
+    return Exercise(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      targetWeightKg: targetWeightKg ?? this.targetWeightKg,
+      targetWeightLb: targetWeightLb ?? this.targetWeightLb,
+      sets: sets ?? this.sets,
+      repetitions: repetitions ?? this.repetitions,
+      restTimeSeconds: restTimeSeconds ?? this.restTimeSeconds,
+      isDualBar: isDualBar ?? this.isDualBar,
+      includeBarWeight: includeBarWeight ?? this.includeBarWeight,
+      poolInventories: poolInventories ?? this.poolInventories,
+      barWeightKg: barWeightKg ?? this.barWeightKg,
+      barWeightLb: barWeightLb ?? this.barWeightLb,
+    );
+  }
+
+  @override
+  String toString() =>
+      'Exercise(id: $id, name: $name, targetWeightKg: $targetWeightKg, '
+      'sets: $sets, repetitions: $repetitions, isDualBar: $isDualBar)';
+}
