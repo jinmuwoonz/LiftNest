@@ -13,8 +13,7 @@ LiftNest is a modern, beautifully designed Flutter application to help weightlif
 - **Dark Mode Aesthetic**: A sleek, premium dark theme with vibrant orange accents designed specifically for gym environments.
 
 ## 📱 Screenshots & Visuals
-
-_(No screenshots yet)_
+*(No screenshots yet)*
 
 ## 🛠️ Built With
 
