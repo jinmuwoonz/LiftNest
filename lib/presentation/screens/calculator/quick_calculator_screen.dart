@@ -61,10 +61,15 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
   // ── Calculate ─────────────────────────────────────────────────────────────
   void _calculate() {
     final raw = double.tryParse(_targetCtrl.text.trim());
-    if (raw == null || raw <= 0) return;
+    if (raw == null || raw <= 0) {
+      setState(() {
+        _pooledResult = null;
+        _individualResults = null;
+        _hasCalculated = false;
+      });
+      return;
+    }
     final targetKg = _useKg ? raw : raw * _lbToKg;
-
-    FocusScope.of(context).unfocus();
 
     if (_selectedInvIds.isEmpty) {
       setState(() {
@@ -170,7 +175,7 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
                               toKg ? cur * _lbToKg : cur * _kgToLb;
                           _targetCtrl.text = _fmt(converted);
                         }
-                        _hasCalculated = false;
+                        _calculate();
                       });
                     },
                   ),
@@ -185,8 +190,7 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
                       FilteringTextInputFormatter.allow(
                           RegExp(r'^\d*\.?\d*'))
                     ],
-                    onChanged: (_) =>
-                        setState(() => _hasCalculated = false),
+                    onChanged: (_) => _calculate(),
                     decoration: InputDecoration(
                       labelText: 'Target Weight',
                       hintText: '0.0',
@@ -204,10 +208,10 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
                   const SizedBox(height: 12),
                   _BarTypeSelector(
                     isDualBar: _isDualBar,
-                    onChanged: (v) => setState(() {
-                      _isDualBar = v;
-                      _hasCalculated = false;
-                    }),
+                    onChanged: (v) {
+                      setState(() => _isDualBar = v);
+                      _calculate();
+                    },
                   ),
 
                   const SizedBox(height: 28),
@@ -231,35 +235,16 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
                     const SizedBox(height: 14),
                     _PoolToggle(
                       value: _poolInventories,
-                      onChanged: (v) => setState(() {
-                        _poolInventories = v;
-                        _hasCalculated = false;
-                      }),
+                      onChanged: (v) {
+                        setState(() => _poolInventories = v);
+                        _calculate();
+                      },
                     ),
                   ],
 
-                  const SizedBox(height: 28),
-
-                  // ── Calculate button ────────────────────────────────────
-                  GestureDetector(
-                    onTap: _calculate,
-                    child: Container(
-                      height: 54,
-                      decoration: AppColors.gradientBox(radius: 14),
-                      alignment: Alignment.center,
-                      child: const Text(
-                        'Calculate',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-
                   // ── Result ──────────────────────────────────────────────
                   if (_hasCalculated) ...[
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 28),
                     _buildResult(),
                   ],
                 ],
@@ -344,7 +329,7 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
                     } else {
                       _selectedInvIds.remove(inv.id!);
                     }
-                    _hasCalculated = false;
+                    _calculate();
                   });
                 },
                 title: Row(
@@ -487,34 +472,38 @@ class _ResultCard extends StatelessWidget {
 
           if (result.isOk && result.perSideKg > 0) ...[
             const SizedBox(height: 12),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.accentDim,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.horizontal_split_rounded,
-                      size: 14, color: AppColors.accent),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Per side: ${_fmt(result.perSideKg)} kg',
-                    style: const TextStyle(
-                        color: AppColors.accent,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700),
-                  ),
-                ],
+            Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.accentDim,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.horizontal_split_rounded,
+                        size: 14, color: AppColors.accent),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Per side: ${_fmt(result.perSideKg)} kg',
+                      style: const TextStyle(
+                          color: AppColors.accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
               ),
             ),
           ] else if (result.isOk) ...[
             const SizedBox(height: 8),
-            const Text('Bar only — no plates needed',
-                style: TextStyle(
-                    color: AppColors.textMuted, fontSize: 12)),
+            const Center(
+              child: Text('Bar only — no plates needed',
+                  style: TextStyle(
+                      color: AppColors.textMuted, fontSize: 12)),
+            ),
           ],
         ],
       ),

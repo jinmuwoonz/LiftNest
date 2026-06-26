@@ -64,6 +64,7 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
     );
     final descCtrl = TextEditingController(text: weight?.description ?? '');
     int qty = weight?.quantity ?? 1;
+    Color? selectedColor = weight?.colorValue != null ? Color(weight!.colorValue!) : null;
     final formKey = GlobalKey<FormState>();
 
     await showModalBottomSheet<void>(
@@ -177,6 +178,16 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                         hintText: 'e.g. Red bumper plates',
                       ),
                     ),
+                    const SizedBox(height: 20),
+
+                    // Color picker
+                    Text('Color', style: Theme.of(ctx).textTheme.titleSmall),
+                    const SizedBox(height: 10),
+                    _ColorSelector(
+                      selectedColor: selectedColor,
+                      onColorChanged: (c) => setSheet(() => selectedColor = c),
+                    ),
+
                     const SizedBox(height: 28),
 
                     // Submit
@@ -189,6 +200,7 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                         final kg = useKg ? raw : raw * _lbToKg;
                         final lb = useKg ? raw * _kgToLb : raw;
                         final desc = descCtrl.text.trim();
+                        final colorVal = selectedColor?.value;
                         if (weight == null) {
                           await DatabaseHelper.instance.insertWeight(Weight(
                             inventoryId: _inventory.id!,
@@ -196,6 +208,7 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                             weightLb: lb,
                             quantity: qty,
                             description: desc.isEmpty ? '' : desc,
+                            colorValue: colorVal,
                           ));
                         } else {
                           await DatabaseHelper.instance.updateWeight(
@@ -204,6 +217,7 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
                               weightLb: lb,
                               quantity: qty,
                               description: desc.isEmpty ? '' : desc,
+                              colorValue: colorVal,
                             ),
                           );
                         }
@@ -518,12 +532,16 @@ class _WeightCard extends StatelessWidget {
               Container(
                 width: 46,
                 height: 46,
-                decoration: const BoxDecoration(
-                  color: AppColors.accentDim,
+                decoration: BoxDecoration(
+                  color: weight.colorValue != null ? Color(weight.colorValue!) : AppColors.accentDim,
                   shape: BoxShape.circle,
+                  border: weight.colorValue != null ? Border.all(color: AppColors.border, width: 2) : null,
                 ),
-                child: const Icon(Icons.fitness_center_rounded,
-                    color: AppColors.accent, size: 20),
+                child: Icon(Icons.fitness_center_rounded,
+                    color: weight.colorValue != null 
+                        ? (Color(weight.colorValue!).computeLuminance() > 0.5 ? Colors.black87 : Colors.white)
+                        : AppColors.accent, 
+                    size: 20),
               ),
               const SizedBox(width: 14),
 
@@ -756,3 +774,144 @@ class _QuantityStepper extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Color Selector
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ColorSelector extends StatelessWidget {
+  final Color? selectedColor;
+  final ValueChanged<Color?> onColorChanged;
+
+  const _ColorSelector({required this.selectedColor, required this.onColorChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final presets = [
+      Colors.green,
+      Colors.black,
+      Colors.red,
+      Colors.blue,
+      Colors.yellow,
+    ];
+
+    bool isCustom = selectedColor != null && !presets.any((p) => p.value == selectedColor!.value);
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _buildColorCircle(context, null, selectedColor == null, () => onColorChanged(null)),
+        for (final c in presets)
+          _buildColorCircle(context, c, selectedColor?.value == c.value, () => onColorChanged(c)),
+        _buildCustomCircle(context, isCustom, () async {
+            final custom = await _showCustomColorPicker(context, selectedColor ?? Colors.grey);
+            if (custom != null) onColorChanged(custom);
+        }),
+      ],
+    );
+  }
+
+  Widget _buildColorCircle(BuildContext context, Color? color, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: color ?? AppColors.surface,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isSelected ? AppColors.accent : (color == null ? AppColors.border : Colors.transparent),
+            width: isSelected ? 3 : 1,
+          ),
+        ),
+        child: color == null 
+            ? const Icon(Icons.format_color_reset, size: 20, color: AppColors.textMuted)
+            : (isSelected ? Icon(Icons.check, size: 20, color: color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white) : null),
+      ),
+    );
+  }
+
+  Widget _buildCustomCircle(BuildContext context, bool isCustom, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          gradient: const SweepGradient(
+            colors: [Colors.red, Colors.yellow, Colors.green, Colors.blue, Colors.purple, Colors.red],
+          ),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isCustom ? AppColors.accent : Colors.transparent,
+            width: isCustom ? 3 : 0,
+          ),
+        ),
+        child: isCustom
+            ? const Icon(Icons.check, size: 20, color: AppColors.surface)
+            : const Icon(Icons.add, size: 20, color: Colors.white),
+      ),
+    );
+  }
+
+  Future<Color?> _showCustomColorPicker(BuildContext context, Color initialColor) {
+    double r = initialColor.red.toDouble();
+    double g = initialColor.green.toDouble();
+    double b = initialColor.blue.toDouble();
+
+    return showDialog<Color>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('Custom Color'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: Color.fromRGBO(r.toInt(), g.toInt(), b.toInt(), 1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const Text('R', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  Expanded(child: Slider(value: r, min: 0, max: 255, activeColor: Colors.red, onChanged: (v) => setDialog(() => r = v))),
+                ],
+              ),
+              Row(
+                children: [
+                  const Text('G', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  Expanded(child: Slider(value: g, min: 0, max: 255, activeColor: Colors.green, onChanged: (v) => setDialog(() => g = v))),
+                ],
+              ),
+              Row(
+                children: [
+                  const Text('B', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                  Expanded(child: Slider(value: b, min: 0, max: 255, activeColor: Colors.blue, onChanged: (v) => setDialog(() => b = v))),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, Color.fromRGBO(r.toInt(), g.toInt(), b.toInt(), 1)),
+              child: const Text('Select', style: TextStyle(color: AppColors.accent)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

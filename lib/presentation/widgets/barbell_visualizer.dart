@@ -15,12 +15,14 @@ class BarbellVisualizer extends StatelessWidget {
   final PlateResult result;
   final bool compact;
   final bool isDualBar;
+  final bool drawBar;
 
   const BarbellVisualizer({
     super.key,
     required this.result,
     this.compact = false,
     this.isDualBar = false,
+    this.drawBar = true,
   });
 
   @override
@@ -28,30 +30,37 @@ class BarbellVisualizer extends StatelessWidget {
     if (!result.isOk) return _StatusMessage(result: result);
 
     // Expand per-side list into individual plate slots (heaviest first = inner).
-    final List<double> expanded = [];
+    final List<(double, int?)> expanded = [];
     for (final p in result.perSide) {
       for (int i = 0; i < p.countPerSide; i++) {
-        expanded.add(p.weightKg);
+        expanded.add((p.weightKg, p.colorValue));
       }
     }
 
     // Left side: outer → inner (reversed). Right: inner → outer (normal).
-    final leftPlates = List<double>.from(expanded.reversed);
-    final rightPlates = List<double>.from(expanded);
+    final leftPlates = List<(double, int?)>.from(expanded.reversed);
+    final rightPlates = List<(double, int?)>.from(expanded);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
         if (isDualBar) _DualBarBadge(),
-        _Barbell(
-          leftPlates: leftPlates,
-          rightPlates: rightPlates,
-          compact: compact,
+        Center(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: _Barbell(
+              leftPlates: leftPlates,
+              rightPlates: rightPlates,
+              compact: compact,
+              drawBar: drawBar,
+            ),
+          ),
         ),
         if (!compact && result.perSide.isNotEmpty) ...[
           const SizedBox(height: 10),
-          _Summary(result: result),
+          Center(child: _Summary(result: result, drawBar: drawBar)),
         ],
       ],
     );
@@ -70,10 +79,12 @@ class _StatusMessage extends StatelessWidget {
   Widget build(BuildContext context) {
     final (icon, msg, color) = _resolve(result.status);
     return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 15, color: color),
         const SizedBox(width: 8),
-        Expanded(
+        Flexible(
             child: Text(msg,
                 style: TextStyle(color: color, fontSize: 12))),
       ],
@@ -110,11 +121,18 @@ class _StatusMessage extends StatelessWidget {
 
 class _Summary extends StatelessWidget {
   final PlateResult result;
-  const _Summary({required this.result});
+  final bool drawBar;
+  const _Summary({required this.result, this.drawBar = true});
 
   @override
   Widget build(BuildContext context) {
     final perSide = result.totalLoadedKgPerSide;
+    if (!drawBar) {
+      return Text(
+        'Total: ${_fmt(perSide)} kg',
+        style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+      );
+    }
     return Text(
       'Per side: ${_fmt(perSide)} kg   ·   '
       'Plates total: ${_fmt(perSide * 2)} kg',
@@ -154,14 +172,16 @@ class _DualBarBadge extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _Barbell extends StatelessWidget {
-  final List<double> leftPlates;
-  final List<double> rightPlates;
+  final List<(double, int?)> leftPlates;
+  final List<(double, int?)> rightPlates;
   final bool compact;
+  final bool drawBar;
 
   const _Barbell({
     required this.leftPlates,
     required this.rightPlates,
     required this.compact,
+    this.drawBar = true,
   });
 
   @override
@@ -172,22 +192,22 @@ class _Barbell extends StatelessWidget {
     final double barH    = compact ? 6  : 8;
     final double sleeveH = compact ? 20 : 26;
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (drawBar) ...[
           // Left plates (outer → inner reading left-to-right)
-          ...leftPlates.map((kg) => _Plate(kg: kg, width: plateW, compact: compact)),
+          ...leftPlates.map((p) => _Plate(kg: p.$1, colorValue: p.$2, width: plateW, compact: compact)),
           _Sleeve(width: sleeveW, height: sleeveH, isLeft: true),
           _BarShaft(width: barW, height: barH),
           _Sleeve(width: sleeveW, height: sleeveH, isLeft: false),
-          // Right plates (inner → outer reading left-to-right)
-          ...rightPlates.map((kg) => _Plate(kg: kg, width: plateW, compact: compact)),
         ],
-      ),
+          
+        // Right plates (inner → outer reading left-to-right)
+        // If drawBar is false, this acts as the single stack of plates
+        ...rightPlates.map((p) => _Plate(kg: p.$1, colorValue: p.$2, width: plateW, compact: compact)),
+      ],
     );
   }
 }
@@ -198,13 +218,15 @@ class _Barbell extends StatelessWidget {
 
 class _Plate extends StatelessWidget {
   final double kg;
+  final int? colorValue;
   final double width;
   final bool compact;
 
-  const _Plate({required this.kg, required this.width, required this.compact});
+  const _Plate({required this.kg, this.colorValue, required this.width, required this.compact});
 
   /// Standard Olympic plate colour mapping.
-  static Color _color(double kg) {
+  static Color _color(double kg, int? customColor) {
+    if (customColor != null) return Color(customColor);
     if (kg >= 25) return const Color(0xFFDC2626); // Red
     if (kg >= 20) return const Color(0xFF2563EB); // Blue
     if (kg >= 15) return const Color(0xFFF59E0B); // Yellow
@@ -242,7 +264,7 @@ class _Plate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = _color(kg);
+    final c = _color(kg, colorValue);
     final h = _height(kg, compact);
     return Container(
       width: width,

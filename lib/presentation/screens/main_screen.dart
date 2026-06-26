@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import 'calculator/quick_calculator_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'workout/workout_screen.dart';
+import 'settings/settings_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -44,6 +45,16 @@ class _MainScreenState extends State<MainScreen> {
           child: Divider(height: 1),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, size: 24),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const SettingsScreen(),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.calculate_outlined, size: 24),
             tooltip: 'Quick Calculator',

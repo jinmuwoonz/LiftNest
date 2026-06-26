@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../../core/database/database_helper.dart';
 import '../../../core/models/exercise.dart';
 import '../../../core/models/exercise_workout.dart';
+import '../../../core/models/exercise_inventory.dart';
 import '../../../core/models/inventory.dart';
 import '../../../core/models/weight.dart';
 import '../../../core/models/workout.dart';
@@ -20,12 +22,14 @@ class _ExerciseRow {
   final List<Inventory> inventories;
   final PlateResult? pooledResult;
   final List<PlateResult>? individualResults;
+  final bool isManual;
 
   const _ExerciseRow({
     required this.exercise,
     required this.inventories,
     this.pooledResult,
     this.individualResults,
+    this.isManual = false,
   });
 }
 
@@ -68,33 +72,62 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
 
       PlateResult? pooledResult;
       List<PlateResult>? individualResults;
+      bool isManual = false;
 
-      if (ex.targetWeightKg != null) {
+      if (ex.needsWeight) {
         if (ex.poolInventories || invs.length <= 1) {
-          final weights = <Weight>[];
-          for (final inv in invs) {
-            weights.addAll(
-                await DatabaseHelper.instance.getWeightsForInventory(inv.id!));
-          }
-          pooledResult = PlateCalculator.calculate(
-            targetWeightKg: ex.targetWeightKg!,
-            includeBarWeight: ex.includeBarWeight,
-            barWeightKg: ex.barWeightKg ?? 0,
-            isDualBar: ex.isDualBar,
-            availableWeights: weights,
-          );
-        } else {
-          individualResults = [];
-          for (final inv in invs) {
-            final weights = await DatabaseHelper.instance
-                .getWeightsForInventory(inv.id!);
-            individualResults.add(PlateCalculator.calculate(
+          isManual = ex.manualPlatesJson != null;
+          if (isManual) {
+            try {
+              final manualMap = jsonDecode(ex.manualPlatesJson!) as Map<String, dynamic>;
+              final weights = <Weight>[];
+              for (final inv in invs) {
+                weights.addAll(await DatabaseHelper.instance.getWeightsForInventory(inv.id!));
+              }
+              pooledResult = PlateCalculator.calculateManual(manualMap, weights);
+            } catch (_) {}
+          } else if (ex.targetWeightKg != null) {
+            final weights = <Weight>[];
+            for (final inv in invs) {
+              weights.addAll(await DatabaseHelper.instance.getWeightsForInventory(inv.id!));
+            }
+            pooledResult = PlateCalculator.calculate(
               targetWeightKg: ex.targetWeightKg!,
               includeBarWeight: ex.includeBarWeight,
               barWeightKg: ex.barWeightKg ?? 0,
               isDualBar: ex.isDualBar,
               availableWeights: weights,
-            ));
+            );
+          }
+        } else {
+          // Multi-inventory (no pool)
+          final eiList = await DatabaseHelper.instance.getExerciseInventories(ex.id!);
+          isManual = eiList.any((ei) => ei.manualPlatesJson != null);
+          individualResults = [];
+          
+          for (int i = 0; i < invs.length; i++) {
+            final inv = invs[i];
+            final ei = eiList.firstWhere((e) => e.inventoryId == inv.id, orElse: () => ExerciseInventory(exerciseId: ex.id!, inventoryId: inv.id!));
+            final weights = await DatabaseHelper.instance.getWeightsForInventory(inv.id!);
+            
+            if (ei.manualPlatesJson != null) {
+              try {
+                final manualMap = jsonDecode(ei.manualPlatesJson!) as Map<String, dynamic>;
+                individualResults.add(PlateCalculator.calculateManual(manualMap, weights));
+              } catch (_) {
+                individualResults.add(PlateCalculator.calculateManual({}, weights));
+              }
+            } else if (ei.targetWeightKg != null) {
+              individualResults.add(PlateCalculator.calculate(
+                targetWeightKg: ei.targetWeightKg!,
+                includeBarWeight: ex.includeBarWeight,
+                barWeightKg: ex.barWeightKg ?? 0,
+                isDualBar: ex.isDualBar,
+                availableWeights: weights,
+              ));
+            } else {
+              individualResults.add(PlateCalculator.calculateManual({}, weights));
+            }
           }
         }
       }
@@ -104,6 +137,7 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
         inventories: invs,
         pooledResult: pooledResult,
         individualResults: individualResults,
+        isManual: isManual,
       ));
     }
 
@@ -202,13 +236,24 @@ class _WorkoutDetailScreenState extends State<WorkoutDetailScreen> {
                           style: const TextStyle(
                               color: AppColors.textPrimary,
                               fontWeight: FontWeight.w600)),
-                      subtitle: ex.targetWeightKg != null
-                          ? Text(
-                              '${_fmtKg(ex.targetWeightKg!)} kg  ·  '
-                              '${ex.sets ?? '?'} × ${ex.repetitions ?? '?'}',
+                      subtitle: ex.needsWeight
+                          ? (ex.targetWeightKg != null
+                              ? Text(
+                                  '${_fmtKg(ex.targetWeightKg!)} kg  ·  '
+                                  '${ex.sets ?? '?'} × ${ex.repetitions ?? '?'}',
+                                  style: const TextStyle(
+                                      color: AppColors.textMuted, fontSize: 12))
+                              : (ex.manualPlatesJson != null
+                                  ? Text(
+                                      'Manual Plates  ·  '
+                                      '${ex.sets ?? '?'} × ${ex.repetitions ?? '?'}',
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted, fontSize: 12))
+                                  : null))
+                          : Text(
+                              'Bodyweight  ·  ${ex.sets ?? '?'} × ${ex.repetitions ?? '?'}',
                               style: const TextStyle(
-                                  color: AppColors.textMuted, fontSize: 12))
-                          : null,
+                                  color: AppColors.textMuted, fontSize: 12)),
                       trailing: const Icon(Icons.add_circle_outline,
                           color: AppColors.accent),
                     );
@@ -669,14 +714,18 @@ class _ExerciseCard extends StatelessWidget {
                       Wrap(
                         spacing: 6,
                         children: [
-                          if (ex.targetWeightKg != null)
+                          if (ex.needsWeight && ex.targetWeightKg != null && !row.isManual)
                             _Pill('${_fmtKg(ex.targetWeightKg!)} kg'),
+                          if (ex.needsWeight && row.isManual)
+                            _Pill('Manual Weight', color: AppColors.accent),
+                          if (!ex.needsWeight)
+                            _Pill('Bodyweight', color: AppColors.accentDim),
                           if (ex.sets != null || ex.repetitions != null)
                             _Pill(
                                 '${ex.sets ?? '?'} × ${ex.repetitions ?? '?'}'),
                           if (ex.restTimeSeconds != null)
                             _Pill(_fmtRest(ex.restTimeSeconds!)),
-                          if (ex.isDualBar)
+                          if (ex.needsWeight && ex.isDualBar && !row.isManual)
                             _Pill('×2 bars',
                                 color: AppColors.accent),
                         ],
@@ -709,33 +758,31 @@ class _ExerciseCard extends StatelessWidget {
             const SizedBox(height: 14),
 
             // ── Barbell visual ────────────────────────────────────────
-            if (row.pooledResult != null) ...[
-              _buildResult(context, row.pooledResult!, row.inventories.length == 1 ? row.inventories.first.name : 'Pooled Inventories', ex.isDualBar),
-            ] else if (row.individualResults != null && row.individualResults!.isNotEmpty) ...[
-              SizedBox(
-                height: 110,
-                child: PageView.builder(
-                  controller: PageController(viewportFraction: 1.0),
-                  itemCount: row.individualResults!.length,
-                  itemBuilder: (ctx, idx) {
-                    return _buildResult(context, row.individualResults![idx], row.inventories[idx].name, ex.isDualBar);
-                  },
+            if (ex.needsWeight) ...[
+              if (row.pooledResult != null) ...[
+                _buildResult(context, row.pooledResult!, row.inventories.length == 1 ? row.inventories.first.name : 'Pooled Inventories', ex.isDualBar, isManual: row.isManual),
+              ] else if (row.individualResults != null && row.individualResults!.isNotEmpty) ...[
+                _CarouselVisualizer(
+                  results: row.individualResults!,
+                  inventories: row.inventories,
+                  isDualBar: ex.isDualBar,
+                  isManual: row.isManual,
                 ),
-              ),
-            ] else
-              const Text('No target weight set',
-                  style: TextStyle(
-                      color: AppColors.textMuted, fontSize: 12)),
+              ] else if (!row.isManual)
+                const Text('No target weight set',
+                    style: TextStyle(
+                        color: AppColors.textMuted, fontSize: 12)),
+            ]
           ],
         ),
       ),
     );
   }
 
-  Widget _buildResult(BuildContext context, PlateResult result, String inventoryName, bool isDualBar) {
+  Widget _buildResult(BuildContext context, PlateResult result, String inventoryName, bool isDualBar, {bool isManual = false}) {
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(
           height: 78,
@@ -743,19 +790,24 @@ class _ExerciseCard extends StatelessWidget {
             result: result,
             compact: true,
             isDualBar: isDualBar,
+            drawBar: !isManual,
           ),
         ),
         const SizedBox(height: 10),
         // Per-side summary
         if (result.isOk)
-          Row(children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
             const Icon(Icons.horizontal_split_rounded,
                 size: 13, color: AppColors.textMuted),
             const SizedBox(width: 5),
             Text(
-              result.perSideKg > 0
-                  ? 'Per side: ${_fmtKg(result.perSideKg)} kg'
-                  : 'Bar only',
+              isManual 
+                  ? 'Total: ${_fmtKg(result.perSideKg)} kg'
+                  : (result.perSideKg > 0
+                      ? 'Per side: ${_fmtKg(result.perSideKg)} kg'
+                      : 'Bar only'),
               style: const TextStyle(
                   color: AppColors.textMuted, fontSize: 12),
             ),
@@ -930,4 +982,114 @@ String _fmtRest(int secs) {
   final m = secs ~/ 60;
   final s = secs % 60;
   return s == 0 ? '${m}m' : '${m}m${s}s';
+}
+
+class _CarouselVisualizer extends StatefulWidget {
+  final List<PlateResult> results;
+  final List<Inventory> inventories;
+  final bool isDualBar;
+  final bool isManual;
+
+  const _CarouselVisualizer({
+    required this.results,
+    required this.inventories,
+    required this.isDualBar,
+    required this.isManual,
+  });
+
+  @override
+  State<_CarouselVisualizer> createState() => _CarouselVisualizerState();
+}
+
+class _CarouselVisualizerState extends State<_CarouselVisualizer> {
+  final _pageCtrl = PageController();
+  int _curr = 0;
+
+  @override
+  void dispose() {
+    _pageCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 115,
+          child: PageView.builder(
+            controller: _pageCtrl,
+            onPageChanged: (idx) => setState(() => _curr = idx),
+            itemCount: widget.results.length,
+            itemBuilder: (ctx, idx) {
+              final res = widget.results[idx];
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    height: 78,
+                    child: BarbellVisualizer(
+                      result: res,
+                      compact: true,
+                      isDualBar: widget.isDualBar,
+                      drawBar: !widget.isManual,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Per-side summary & Inventory name
+                  if (res.isOk)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.horizontal_split_rounded,
+                            size: 13, color: AppColors.textMuted),
+                        const SizedBox(width: 5),
+                        Text(
+                          widget.isManual 
+                              ? 'Total: ${_fmtKg(res.perSideKg)} kg'
+                              : (res.perSideKg > 0
+                                  ? 'Per side: ${_fmtKg(res.perSideKg)} kg'
+                                  : 'Bar only'),
+                          style: const TextStyle(
+                              color: AppColors.textMuted, fontSize: 12),
+                        ),
+                        const Text('  ·  ',
+                            style: TextStyle(color: AppColors.textMuted)),
+                        Text(
+                          widget.inventories[idx].name,
+                          style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+        // Dots
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(widget.results.length, (idx) {
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: _curr == idx ? 16 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: _curr == idx ? AppColors.accent : AppColors.textMuted.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
 }

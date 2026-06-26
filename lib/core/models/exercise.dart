@@ -22,6 +22,10 @@ class Exercise {
   final double? barWeightKg;
   final double? barWeightLb;
 
+  // Manual calculation & Bodyweight
+  final bool needsWeight; // false for bodyweight/cardio
+  final String? manualPlatesJson; // e.g. '{"1": 2, "3": 4}' (weightId -> qty)
+
   const Exercise({
     this.id,
     required this.name,
@@ -36,6 +40,8 @@ class Exercise {
     this.poolInventories = true,
     this.barWeightKg,
     this.barWeightLb,
+    this.needsWeight = true,
+    this.manualPlatesJson,
   });
 
   Map<String, dynamic> toMap() {
@@ -53,6 +59,8 @@ class Exercise {
       'pool_inventories': poolInventories ? 1 : 0,
       'bar_weight_kg': barWeightKg,
       'bar_weight_lb': barWeightLb,
+      'needs_weight': needsWeight ? 1 : 0,
+      'manual_plates_json': manualPlatesJson,
     };
   }
 
@@ -71,6 +79,8 @@ class Exercise {
       poolInventories: (map['pool_inventories'] as int? ?? 1) == 1,
       barWeightKg: map['bar_weight_kg'] as double?,
       barWeightLb: map['bar_weight_lb'] as double?,
+      needsWeight: (map['needs_weight'] as int? ?? 1) == 1,
+      manualPlatesJson: map['manual_plates_json'] as String?,
     );
   }
 
@@ -88,6 +98,8 @@ class Exercise {
     bool? poolInventories,
     double? barWeightKg,
     double? barWeightLb,
+    bool? needsWeight,
+    String? manualPlatesJson,
   }) {
     return Exercise(
       id: id ?? this.id,
@@ -103,6 +115,8 @@ class Exercise {
       poolInventories: poolInventories ?? this.poolInventories,
       barWeightKg: barWeightKg ?? this.barWeightKg,
       barWeightLb: barWeightLb ?? this.barWeightLb,
+      needsWeight: needsWeight ?? this.needsWeight,
+      manualPlatesJson: manualPlatesJson ?? this.manualPlatesJson,
     );
   }
 

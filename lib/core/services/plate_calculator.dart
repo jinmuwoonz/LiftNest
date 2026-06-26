@@ -10,8 +10,9 @@ import '../models/weight.dart';
 class PlateUsage {
   final double weightKg;
   final int countPerSide;
+  final int? colorValue;
 
-  const PlateUsage({required this.weightKg, required this.countPerSide});
+  const PlateUsage({required this.weightKg, required this.countPerSide, this.colorValue});
 
   double get weightLb => weightKg * 2.20462;
   double get totalKgPerSide => weightKg * countPerSide;
@@ -105,15 +106,18 @@ class PlateCalculator {
     // So: maxCountPerSide = totalQuantity ÷ (isDualBar ? 4 : 2)
     final int totalSides = isDualBar ? 4 : 2;
 
-    // 1. Aggregate total quantity per plate weight across all inventories.
-    final Map<int, int> totalQty = {};
+    // 1. Aggregate total quantity per plate weight & color across all inventories.
+    final Map<String, int> totalQty = {};
+    final Map<String, (double weight, int? color)> keyMeta = {};
+    
     for (final w in availableWeights) {
-      final key = (w.weightKg * _scale).round();
+      final key = '${(w.weightKg * _scale).round()}_${w.colorValue ?? ""}';
       totalQty[key] = (totalQty[key] ?? 0) + w.quantity;
+      keyMeta[key] = (w.weightKg, w.colorValue);
     }
 
     // 2. Compute available per side using integer floor division.
-    final Map<int, int> perSideQty = {};
+    final Map<String, int> perSideQty = {};
     for (final e in totalQty.entries) {
       final avail = e.value ~/ totalSides;
       if (avail > 0) perSideQty[e.key] = avail;
@@ -121,7 +125,11 @@ class PlateCalculator {
 
     // 3. Sort heaviest first (inner plates go on first, greedy works well).
     final sorted = perSideQty.entries.toList()
-      ..sort((a, b) => b.key.compareTo(a.key));
+      ..sort((a, b) {
+        final wa = keyMeta[a.key]!.$1;
+        final wb = keyMeta[b.key]!.$1;
+        return wb.compareTo(wa);
+      });
 
     final int targetInt = (perSideKg * _scale).round();
 
@@ -135,8 +143,13 @@ class PlateCalculator {
     }
 
     // 4. Try to solve with actual available quantities.
+    final solverPlates = sorted.map((e) {
+      final weightInt = (keyMeta[e.key]!.$1 * _scale).round();
+      return (weightInt, e.value);
+    }).toList();
+
     final counts = _solve(
-      sorted.map((e) => (e.key, e.value)).toList(),
+      solverPlates,
       targetInt,
       0,
     );
@@ -147,8 +160,9 @@ class PlateCalculator {
         final c = i < counts.length ? counts[i] : 0;
         if (c > 0) {
           usage.add(PlateUsage(
-            weightKg: sorted[i].key / _scale.toDouble(),
+            weightKg: keyMeta[sorted[i].key]!.$1,
             countPerSide: c,
+            colorValue: keyMeta[sorted[i].key]!.$2,
           ));
         }
       }
@@ -161,7 +175,7 @@ class PlateCalculator {
 
     // 5. Check theoretical feasibility (unlimited quantities).
     final theoretical = _solve(
-      sorted.map((e) => (e.key, 9999)).toList(),
+      solverPlates.map((e) => (e.$1, 9999)).toList(),
       targetInt,
       0,
     );
@@ -172,6 +186,31 @@ class PlateCalculator {
           ? PlateResultStatus.notEnoughPlates
           : PlateResultStatus.cannotAchieve,
       perSideKg: perSideKg,
+    );
+  }
+
+  /// Calculates a PlateResult directly from manually selected plates.
+  static PlateResult calculateManual(Map<String, dynamic> manualPlatesJson, List<Weight> availableWeights) {
+    final Map<int, int> selected = manualPlatesJson.map((k, v) => MapEntry(int.parse(k), v as int));
+    final usage = <PlateUsage>[];
+    
+    // To keep them sorted heaviest first, we sort available weights by weightKg descending
+    final sortedWeights = availableWeights.toList()..sort((a, b) => b.weightKg.compareTo(a.weightKg));
+    
+    for (final w in sortedWeights) {
+      if (w.id == null) continue;
+      final count = selected[w.id!];
+      if (count != null && count > 0) {
+        usage.add(PlateUsage(weightKg: w.weightKg, countPerSide: count, colorValue: w.colorValue));
+      }
+    }
+    
+    double totalKg = usage.fold(0.0, (s, p) => s + p.totalKgPerSide);
+    
+    return PlateResult(
+      perSide: usage,
+      status: PlateResultStatus.ok,
+      perSideKg: totalKg,
     );
   }
 

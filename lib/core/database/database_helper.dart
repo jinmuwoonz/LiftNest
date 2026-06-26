@@ -12,7 +12,7 @@ import '../models/workout.dart';
 /// CRUD operations for LiftNest.
 class DatabaseHelper {
   static const String _databaseName = 'liftnest.db';
-  static const int _databaseVersion = 3;
+  static const int _databaseVersion = 6;
 
   // ── Table names ──────────────────────────────────────────────────────────
   static const String tableWorkout = 'Workout';
@@ -54,6 +54,18 @@ class DatabaseHelper {
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE $tableExerciseWorkout ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
     }
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE $tableExercise ADD COLUMN needs_weight INTEGER NOT NULL DEFAULT 1');
+      await db.execute('ALTER TABLE $tableExercise ADD COLUMN manual_plates_json TEXT');
+    }
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE $tableWeight ADD COLUMN color_value INTEGER');
+    }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN target_weight_kg REAL');
+      await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN target_weight_lb REAL');
+      await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN manual_plates_json TEXT');
+    }
   }
 
   /// Enable foreign-key enforcement (disabled by default in SQLite).
@@ -85,7 +97,9 @@ class DatabaseHelper {
         include_bar_weight  INTEGER NOT NULL DEFAULT 0,
         pool_inventories    INTEGER NOT NULL DEFAULT 1,
         bar_weight_kg       REAL,
-        bar_weight_lb       REAL
+        bar_weight_lb       REAL,
+        needs_weight        INTEGER NOT NULL DEFAULT 1,
+        manual_plates_json  TEXT
       )
     ''');
 
@@ -112,9 +126,12 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE $tableExerciseInventory (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        exercise_id  INTEGER NOT NULL,
-        inventory_id INTEGER NOT NULL,
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        exercise_id        INTEGER NOT NULL,
+        inventory_id       INTEGER NOT NULL,
+        target_weight_kg   REAL,
+        target_weight_lb   REAL,
+        manual_plates_json TEXT,
         FOREIGN KEY (exercise_id)  REFERENCES $tableExercise  (id)
           ON DELETE CASCADE,
         FOREIGN KEY (inventory_id) REFERENCES $tableInventory (id)
@@ -130,6 +147,7 @@ class DatabaseHelper {
         weight_lb    REAL    NOT NULL,
         quantity     INTEGER NOT NULL DEFAULT 1,
         description  TEXT,
+        color_value  INTEGER,
         FOREIGN KEY (inventory_id) REFERENCES $tableInventory (id)
           ON DELETE CASCADE
       )
@@ -348,6 +366,12 @@ class DatabaseHelper {
     return maps.map(Weight.fromMap).toList();
   }
 
+  Future<List<Weight>> getAllWeights() async {
+    final db = await database;
+    final maps = await db.query(tableWeight);
+    return maps.map(Weight.fromMap).toList();
+  }
+
   Future<int> updateWeight(Weight weight) async {
     final db = await database;
     return db.update(tableWeight, weight.toMap(),
@@ -381,6 +405,18 @@ class DatabaseHelper {
       ORDER BY ei.id ASC
     ''', [exerciseId]);
     return maps.map(Inventory.fromMap).toList();
+  }
+
+  /// Returns the full ExerciseInventory mapping rows for an exercise.
+  Future<List<ExerciseInventory>> getExerciseInventories(int exerciseId) async {
+    final db = await database;
+    final maps = await db.query(
+      tableExerciseInventory,
+      where: 'exercise_id = ?',
+      whereArgs: [exerciseId],
+      orderBy: 'id ASC',
+    );
+    return maps.map(ExerciseInventory.fromMap).toList();
   }
 
   /// Deletes all ExerciseInventory rows for [exerciseId].
