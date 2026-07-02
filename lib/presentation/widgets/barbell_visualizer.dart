@@ -16,6 +16,7 @@ class BarbellVisualizer extends StatelessWidget {
   final bool compact;
   final bool isDualBar;
   final bool drawBar;
+  final bool useKg;
 
   const BarbellVisualizer({
     super.key,
@@ -23,6 +24,7 @@ class BarbellVisualizer extends StatelessWidget {
     this.compact = false,
     this.isDualBar = false,
     this.drawBar = true,
+    this.useKg = true,
   });
 
   @override
@@ -42,6 +44,7 @@ class BarbellVisualizer extends StatelessWidget {
     final rightPlates = List<(double, int?)>.from(expanded);
 
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -55,12 +58,13 @@ class BarbellVisualizer extends StatelessWidget {
               rightPlates: rightPlates,
               compact: compact,
               drawBar: drawBar,
+              useKg: useKg,
             ),
           ),
         ),
         if (!compact && result.perSide.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Center(child: _Summary(result: result, drawBar: drawBar)),
+          Center(child: _Summary(result: result, drawBar: drawBar, useKg: useKg)),
         ],
       ],
     );
@@ -122,20 +126,24 @@ class _StatusMessage extends StatelessWidget {
 class _Summary extends StatelessWidget {
   final PlateResult result;
   final bool drawBar;
-  const _Summary({required this.result, this.drawBar = true});
+  final bool useKg;
+  const _Summary({required this.result, this.drawBar = true, this.useKg = true});
 
   @override
   Widget build(BuildContext context) {
     final perSide = result.totalLoadedKgPerSide;
+    final converted = useKg ? perSide : perSide * 2.20462;
+    final unit = useKg ? 'kg' : 'lb';
+    
     if (!drawBar) {
       return Text(
-        'Total: ${_fmt(perSide)} kg',
+        'Plates total: ${_fmt(converted)} $unit',
         style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
       );
     }
     return Text(
-      'Per side: ${_fmt(perSide)} kg   ·   '
-      'Plates total: ${_fmt(perSide * 2)} kg',
+      'Per side: ${_fmt(converted)} $unit   ·   '
+      'Plates total: ${_fmt(converted * 2)} $unit',
       style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
     );
   }
@@ -176,12 +184,14 @@ class _Barbell extends StatelessWidget {
   final List<(double, int?)> rightPlates;
   final bool compact;
   final bool drawBar;
+  final bool useKg;
 
   const _Barbell({
     required this.leftPlates,
     required this.rightPlates,
     required this.compact,
     this.drawBar = true,
+    this.useKg = true,
   });
 
   @override
@@ -198,7 +208,7 @@ class _Barbell extends StatelessWidget {
       children: [
         if (drawBar) ...[
           // Left plates (outer → inner reading left-to-right)
-          ...leftPlates.map((p) => _Plate(kg: p.$1, colorValue: p.$2, width: plateW, compact: compact)),
+          ...leftPlates.map((p) => _Plate(kg: p.$1, colorValue: p.$2, width: plateW, compact: compact, useKg: useKg)),
           _Sleeve(width: sleeveW, height: sleeveH, isLeft: true),
           _BarShaft(width: barW, height: barH),
           _Sleeve(width: sleeveW, height: sleeveH, isLeft: false),
@@ -206,7 +216,7 @@ class _Barbell extends StatelessWidget {
           
         // Right plates (inner → outer reading left-to-right)
         // If drawBar is false, this acts as the single stack of plates
-        ...rightPlates.map((p) => _Plate(kg: p.$1, colorValue: p.$2, width: plateW, compact: compact)),
+        ...rightPlates.map((p) => _Plate(kg: p.$1, colorValue: p.$2, width: plateW, compact: compact, useKg: useKg)),
       ],
     );
   }
@@ -221,8 +231,9 @@ class _Plate extends StatelessWidget {
   final int? colorValue;
   final double width;
   final bool compact;
+  final bool useKg;
 
-  const _Plate({required this.kg, this.colorValue, required this.width, required this.compact});
+  const _Plate({required this.kg, this.colorValue, required this.width, required this.compact, this.useKg = true});
 
   /// Standard Olympic plate colour mapping.
   static Color _color(double kg, int? customColor) {
@@ -291,7 +302,7 @@ class _Plate extends StatelessWidget {
       child: RotatedBox(
         quarterTurns: 1,
         child: Text(
-          _fmt(kg),
+          _fmt(useKg ? kg : kg * 2.20462),
           style: TextStyle(
             color: c.computeLuminance() > 0.5 ? Colors.black87 : Colors.white,
             fontSize: compact ? 7 : 10,

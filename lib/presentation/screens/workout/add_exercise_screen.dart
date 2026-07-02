@@ -43,6 +43,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   final _targetCtrl = TextEditingController();
   final _barCtrl   = TextEditingController();
   final _restCtrl  = TextEditingController();
+  final _timeCtrl  = TextEditingController();
 
   bool _useKg           = true;
   int  _sets            = 3;
@@ -56,9 +57,14 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   
   bool _poolInventories           = true;
   bool _needsWeight               = true;
+  bool _needsReps                 = true;
   bool _isManualCalc              = false;
-  Map<int, int> _manualPlates     = {}; // weightId -> quantity
-  Map<int, Map<int, int>> _manualPlatesPerInv = {};
+  Map<int, bool> _isManualCalcPerInv = {};
+  List<int> _manualPlates         = []; // sequence of weight IDs
+  Map<int, List<int>> _manualPlatesPerInv = {};
+  Map<int, bool> _isDualBarPerInv = {};
+  Map<int, bool> _includeBarWeightPerInv = {};
+  Map<int, TextEditingController> _barCtrlsPerInv = {};
   Map<int, TextEditingController> _targetCtrlsPerInv = {};
   
   bool _isLoading = true;
@@ -87,10 +93,22 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
     _targetCtrl.dispose();
     _barCtrl.dispose();
     _restCtrl.dispose();
+    _timeCtrl.dispose();
+    for (var ctrl in _barCtrlsPerInv.values) {
+      ctrl.dispose();
+    }
     for (var ctrl in _targetCtrlsPerInv.values) {
       ctrl.dispose();
     }
     super.dispose();
+  }
+
+  TextEditingController _getBarCtrl(int invId) {
+    if (!_barCtrlsPerInv.containsKey(invId)) {
+      _barCtrlsPerInv[invId] = TextEditingController();
+      _barCtrlsPerInv[invId]!.addListener(_onTextChanged);
+    }
+    return _barCtrlsPerInv[invId]!;
   }
 
   TextEditingController _getInvCtrl(int invId) {
@@ -134,25 +152,53 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
       _includeBarWeight = e.includeBarWeight;
       _poolInventories  = e.poolInventories;
       _needsWeight      = e.needsWeight;
+      _needsReps        = e.needsReps;
+      if (!e.needsReps && e.durationSeconds != null) _timeCtrl.text = e.durationSeconds.toString();
+      
       _isManualCalc     = e.manualPlatesJson != null;
       if (e.manualPlatesJson != null) {
         try {
-          final decoded = jsonDecode(e.manualPlatesJson!) as Map<String, dynamic>;
-          _manualPlates = decoded.map((k, v) => MapEntry(int.parse(k), v as int));
+          final decoded = jsonDecode(e.manualPlatesJson!);
+          if (decoded is List) {
+            _manualPlates = decoded.map((e) => e as int).toList();
+          } else if (decoded is Map) {
+            _manualPlates = [];
+            decoded.forEach((k, v) {
+              for (int i = 0; i < (v as int); i++) _manualPlates.add(int.parse(k.toString()));
+            });
+          }
         } catch (_) {}
       }
       
       final eiList = await DatabaseHelper.instance.getExerciseInventories(e.id!);
       for (final ei in eiList) {
+        if (ei.isDualBar != null) _isDualBarPerInv[ei.inventoryId] = ei.isDualBar!;
+        if (ei.includeBarWeight != null) _includeBarWeightPerInv[ei.inventoryId] = ei.includeBarWeight!;
+        if (ei.barWeightKg != null) {
+          final val = _useKg ? ei.barWeightKg! : ei.barWeightKg! * 2.20462;
+          _getBarCtrl(ei.inventoryId).text = _fmtKg(val);
+        }
+        
         if (ei.targetWeightKg != null) {
-          final val = _useKg ? ei.targetWeightKg! : (ei.targetWeightLb ?? ei.targetWeightKg! * _kgToLb);
+          final val = _useKg ? ei.targetWeightKg! : (ei.targetWeightLb ?? ei.targetWeightKg! * 2.20462);
           _getInvCtrl(ei.inventoryId).text = _fmtKg(val);
         }
         if (ei.manualPlatesJson != null) {
+          _isManualCalcPerInv[ei.inventoryId] = true;
           try {
-            final decoded = jsonDecode(ei.manualPlatesJson!) as Map<String, dynamic>;
-            _manualPlatesPerInv[ei.inventoryId] = decoded.map((k, v) => MapEntry(int.parse(k), v as int));
+            final decoded = jsonDecode(ei.manualPlatesJson!);
+            if (decoded is List) {
+              _manualPlatesPerInv[ei.inventoryId] = decoded.map((e) => e as int).toList();
+            } else if (decoded is Map) {
+              final list = <int>[];
+              decoded.forEach((k, v) {
+                for (int i = 0; i < (v as int); i++) list.add(int.parse(k.toString()));
+              });
+              _manualPlatesPerInv[ei.inventoryId] = list;
+            }
           } catch (_) {}
+        } else {
+          _isManualCalcPerInv[ei.inventoryId] = false;
         }
       }
     } else {
@@ -190,7 +236,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
               targetLb  = _useKg ? targetRaw * _kgToLb : targetRaw;
             }
           } else {
-            manualJson = jsonEncode(_manualPlates.map((k, v) => MapEntry(k.toString(), v)));
+            manualJson = jsonEncode(_manualPlates);
           }
         }
       }
@@ -212,7 +258,9 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
         targetWeightKg: targetKg,
         targetWeightLb: targetLb,
         sets: _sets,
-        repetitions: _reps,
+        needsReps: _needsReps,
+        durationSeconds: _needsReps ? null : (int.tryParse(_timeCtrl.text.trim()) ?? 0),
+        repetitions: _needsReps ? _reps : null,
         restTimeSeconds: (restSecs != null && restSecs > 0) ? restSecs : null,
         isDualBar: _isDualBar,
         includeBarWeight: _includeBarWeight,
@@ -240,16 +288,25 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
         String? iManualJson;
 
         if (_needsWeight && !_poolInventories && _selectedInvIds.length > 1) {
-          if (!_isManualCalc) {
+          final isManualForInv = _isManualCalcPerInv[invId] ?? _isManualCalc;
+          if (!isManualForInv) {
             final tRaw = double.tryParse(_getInvCtrl(invId).text.trim()) ?? 0;
             if (tRaw > 0) {
               iKg = _useKg ? tRaw : tRaw * _lbToKg;
               iLb = _useKg ? tRaw * _kgToLb : tRaw;
             }
           } else {
-            final map = _manualPlatesPerInv[invId] ?? {};
-            iManualJson = jsonEncode(map.map((k, v) => MapEntry(k.toString(), v)));
+            final list = _manualPlatesPerInv[invId] ?? [];
+            iManualJson = jsonEncode(list);
           }
+        }
+
+        double iBarKg = 0, iBarLb = 0;
+        final iBarText = _getBarCtrl(invId).text.trim();
+        if (iBarText.isNotEmpty) {
+          final val = double.tryParse(iBarText) ?? 0;
+          if (_useKg) { iBarKg = val; iBarLb = val * 2.20462; }
+          else { iBarLb = val; iBarKg = val / 2.20462; }
         }
 
         await DatabaseHelper.instance.insertExerciseInventory(
@@ -258,6 +315,10 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
             inventoryId: invId,
             targetWeightKg: iKg,
             targetWeightLb: iLb,
+            isDualBar: _isDualBarPerInv[invId] ?? _isDualBar,
+            includeBarWeight: _includeBarWeightPerInv[invId] ?? _includeBarWeight,
+            barWeightKg: iBarKg > 0 ? iBarKg : null,
+            barWeightLb: iBarLb > 0 ? iBarLb : null,
             manualPlatesJson: iManualJson,
           ),
         );
@@ -354,13 +415,53 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                       onChanged: (v) => setState(() => _sets = v),
                     ),
                     const SizedBox(height: 12),
-                    _StepperRow(
-                      label: 'Reps',
-                      value: _reps,
-                      min: 1,
-                      max: 100,
-                      onChanged: (v) => setState(() => _reps = v),
+                    // Needs Reps toggle
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: SwitchListTile(
+                        value: _needsReps,
+                        onChanged: (v) => setState(() => _needsReps = v),
+                        activeThumbColor: AppColors.accent,
+                        title: const Text('Uses Repetitions',
+                            style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500)),
+                        subtitle: const Text(
+                          'Turn off for time-based exercises (e.g. Planks)',
+                          style: TextStyle(
+                              color: AppColors.textMuted, fontSize: 12),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 4),
+                        dense: true,
+                      ),
                     ),
+                    const SizedBox(height: 12),
+                    if (_needsReps)
+                      _StepperRow(
+                        label: 'Reps',
+                        value: _reps,
+                        min: 1,
+                        max: 100,
+                        onChanged: (v) => setState(() => _reps = v),
+                      )
+                    else
+                      TextFormField(
+                        controller: _timeCtrl,
+                        style: const TextStyle(color: AppColors.textPrimary),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        decoration: const InputDecoration(
+                          labelText: 'Duration per set (seconds)',
+                          hintText: 'e.g. 60',
+                          prefixIcon: Icon(Icons.timer_outlined, color: AppColors.textMuted, size: 20),
+                        ),
+                      ),
                     const SizedBox(height: 14),
                     TextFormField(
                       controller: _restCtrl,
@@ -376,11 +477,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 28),
-                    
-                    // ── Section: Weight Settings ──────────────────────────
-                    _SectionHeader('Weight Settings'),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     Container(
                       decoration: BoxDecoration(
                         color: AppColors.card,
@@ -390,7 +487,7 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                       child: SwitchListTile(
                         value: _needsWeight,
                         onChanged: (v) => setState(() => _needsWeight = v),
-                        activeColor: AppColors.accent,
+                        activeThumbColor: AppColors.accent,
                         title: const Text('Needs Weight',
                             style: TextStyle(
                                 color: AppColors.textPrimary,
@@ -406,75 +503,9 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                         dense: true,
                       ),
                     ),
+                    const SizedBox(height: 28),
+
                     if (_needsWeight) ...[
-                      const SizedBox(height: 14),
-                      _CalcModeSelector(
-                        isManual: _isManualCalc,
-                        onChanged: (v) => setState(() => _isManualCalc = v),
-                      ),
-                      
-                      const SizedBox(height: 28),
-
-                      // ── Section: Bar Setup ──────────────────────────────
-                      _SectionHeader('Bar Setup'),
-                      const SizedBox(height: 14),
-                      _BarTypeSelector(
-                        isDualBar: _isDualBar,
-                        onChanged: (v) => setState(() => _isDualBar = v),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Bar weight field
-                      TextFormField(
-                        controller: _barCtrl,
-                        style: const TextStyle(color: AppColors.textPrimary),
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                              RegExp(r'^\d*\.?\d*'))
-                        ],
-                        decoration: InputDecoration(
-                          labelText: 'Bar weight (optional)',
-                          hintText: '20',
-                          suffixText: _useKg ? 'kg' : 'lb',
-                          suffixStyle: const TextStyle(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-
-                      // Include bar weight switch
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.card,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: SwitchListTile(
-                          value: _includeBarWeight,
-                          onChanged: (v) =>
-                              setState(() => _includeBarWeight = v),
-                          activeColor: AppColors.accent,
-                          title: const Text('Include bar in target',
-                              style: TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500)),
-                          subtitle: const Text(
-                            'Bar weight is subtracted from target\nbefore calculating plates.',
-                            style: TextStyle(
-                                color: AppColors.textMuted, fontSize: 12),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 4),
-                          dense: true,
-                        ),
-                      ),
-
-                      const SizedBox(height: 28),
-
                       // ── Section: Inventory ──────────────────────────────
                       _SectionHeader('Inventory'),
                       const SizedBox(height: 6),
@@ -628,14 +659,44 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                         _buildPreview(null),
                         const SizedBox(height: 28),
                       ] else ...[
-                        for (final invId in _selectedInvIds) ...[
-                          _SectionHeader('Settings: ${_inventories.firstWhere((i) => i.id == invId).name}'),
-                          const SizedBox(height: 12),
-                          _buildTargetOrManualSection(invId),
-                          const SizedBox(height: 12),
-                          _buildPreview(invId),
-                          const SizedBox(height: 28),
-                        ]
+                        for (final invId in _selectedInvIds)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 24),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.card.withValues(alpha: 0.3),
+                              border: Border.all(color: AppColors.accent.withValues(alpha: 0.4), width: 1.5),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.fitness_center, color: AppColors.accent, size: 22),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        _inventories.firstWhere((i) => i.id == invId).name,
+                                        style: const TextStyle(
+                                            color: AppColors.accent,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                const Divider(height: 1, color: AppColors.border),
+                                const SizedBox(height: 16),
+                                _buildTargetOrManualSection(invId),
+                                const SizedBox(height: 24),
+                                _SectionHeader('Preview'),
+                                const SizedBox(height: 12),
+                                _buildPreview(invId),
+                              ],
+                            ),
+                          ),
                       ],
                     ],
 
@@ -671,22 +732,38 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
   }
 
   void _cleanManualPlatesForInv(int invId) {
-    final invWeights = _allWeights.where((w) => w.inventoryId == invId).map((w) => w.id!).toSet();
-    _manualPlates.removeWhere((k, v) => invWeights.contains(k));
     _manualPlatesPerInv.remove(invId);
     _targetCtrlsPerInv.remove(invId)?.dispose();
   }
 
   Widget _buildTargetOrManualSection(int? invId) {
-    if (!_isManualCalc) {
-      final ctrl = invId == null ? _targetCtrl : _getInvCtrl(invId);
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (invId == null) ...[
-            _SectionHeader('Target Weight'),
-            const SizedBox(height: 12),
-          ],
+    final isManual = invId == null
+        ? _isManualCalc
+        : (_isManualCalcPerInv[invId] ?? _isManualCalc);
+
+    final ctrl = invId == null ? _targetCtrl : _getInvCtrl(invId);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (invId == null) ...[
+          _SectionHeader('Weight Settings'),
+          const SizedBox(height: 12),
+        ],
+        _CalcModeSelector(
+          isManual: isManual,
+          onChanged: (v) {
+            setState(() {
+              if (invId == null) {
+                _isManualCalc = v;
+              } else {
+                _isManualCalcPerInv[invId] = v;
+              }
+            });
+          },
+        ),
+        const SizedBox(height: 12),
+        if (!isManual) ...[
           _UnitToggle(
             useKg: _useKg,
             onToggle: (toKg) {
@@ -724,21 +801,66 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
               return null;
             },
           ),
+        ] else ...[
+          if (invId == null || _selectedInvIds.isEmpty) 
+            const SizedBox()
+          else
+            _buildManualPlateSelectors(invId),
         ],
-      );
-    } else {
-      if (invId == null && _selectedInvIds.isEmpty) return const SizedBox();
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (invId == null) ...[
-            _SectionHeader('Manual Plates'),
-            const SizedBox(height: 12),
-          ],
-          _buildManualPlateSelectors(invId),
-        ],
-      );
-    }
+        const SizedBox(height: 28),
+        _SectionHeader('Bar Setup'),
+        const SizedBox(height: 14),
+        _BarTypeSelector(
+          isDualBar: invId == null ? _isDualBar : (_isDualBarPerInv[invId] ?? _isDualBar),
+          onChanged: (v) => setState(() {
+            if (invId == null) _isDualBar = v;
+            else _isDualBarPerInv[invId] = v;
+          }),
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: invId == null ? _barCtrl : _getBarCtrl(invId),
+          style: const TextStyle(color: AppColors.textPrimary),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+          decoration: InputDecoration(
+            labelText: 'Bar Weight (Optional)',
+            hintText: '20',
+            suffixText: _useKg ? 'kg' : 'lb',
+            suffixStyle: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.card,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: SwitchListTile(
+            value: invId == null ? _includeBarWeight : (_includeBarWeightPerInv[invId] ?? _includeBarWeight),
+            onChanged: (v) => setState(() {
+              if (invId == null) _includeBarWeight = v;
+              else _includeBarWeightPerInv[invId] = v;
+            }),
+            activeThumbColor: AppColors.accent,
+            title: const Text('Include bar in target',
+                style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500)),
+            subtitle: const Text(
+              'Bar weight is subtracted from target\nbefore calculating plates.',
+              style: TextStyle(
+                  color: AppColors.textMuted, fontSize: 12),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 4),
+            dense: true,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildManualPlateSelectors(int? invId) {
@@ -759,14 +881,14 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
     }
 
     availWeights.sort((a, b) => b.weightKg.compareTo(a.weightKg));
+    final listToUse = invId == null ? _manualPlates : (_manualPlatesPerInv[invId] ??= []);
 
     return Column(
       children: availWeights.map((w) {
+        final currentCount = listToUse.where((id) => id == w.id).length;
         final weightVal = _useKg ? w.weightKg : w.weightLb;
         final label = '${_fmtKg(weightVal)} ${_useKg ? 'kg' : 'lb'}';
         final desc = w.description != null && w.description!.isNotEmpty ? w.description! : null;
-        final mapToUse = invId == null ? _manualPlates : (_manualPlatesPerInv[invId] ??= {});
-        final currentCount = mapToUse[w.id!] ?? 0;
         
         return Padding(
           padding: const EdgeInsets.only(bottom: 8.0),
@@ -797,14 +919,17 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
                     IconButton(
                       icon: const Icon(Icons.remove, size: 18),
                       onPressed: currentCount > 0
-                          ? () => setState(() => mapToUse[w.id!] = currentCount - 1)
+                          ? () => setState(() {
+                                final idx = listToUse.lastIndexWhere((id) => id == w.id);
+                                if (idx != -1) listToUse.removeAt(idx);
+                              })
                           : null,
                     ),
                     Text('$currentCount', style: const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
                     IconButton(
                       icon: const Icon(Icons.add, size: 18),
                       onPressed: currentCount < w.quantity
-                          ? () => setState(() => mapToUse[w.id!] = currentCount + 1)
+                          ? () => setState(() => listToUse.add(w.id!))
                           : null,
                     ),
                   ],
@@ -832,25 +957,34 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
       availWeights = _allWeights.where((w) => w.inventoryId == invId).toList();
     }
 
-    if (_isManualCalc) {
-      final mapToUse = invId == null ? _manualPlates : (_manualPlatesPerInv[invId] ??= {});
-      final jsonMap = mapToUse.map((k, v) => MapEntry(k.toString(), v));
-      return PlateCalculator.calculateManual(jsonMap, availWeights);
+    final isManual = invId == null
+        ? _isManualCalc
+        : (_isManualCalcPerInv[invId] ?? _isManualCalc);
+
+    if (isManual) {
+      final listToUse = invId == null ? _manualPlates : (_manualPlatesPerInv[invId] ??= []);
+      return PlateCalculator.calculateManual(listToUse, availWeights);
     } else {
       final ctrl = invId == null ? _targetCtrl : _getInvCtrl(invId);
       final rawTarget = double.tryParse(ctrl.text.trim()) ?? 0;
       if (rawTarget <= 0) return null;
+      
       final targetKg = _useKg ? rawTarget : rawTarget * _lbToKg;
+      final isDual = invId == null ? _isDualBar : (_isDualBarPerInv[invId] ?? _isDualBar);
+      final incBar = invId == null ? _includeBarWeight : (_includeBarWeightPerInv[invId] ?? _includeBarWeight);
       
       double barKg = 0;
-      final rawBar = double.tryParse(_barCtrl.text.trim()) ?? 0;
-      if (rawBar > 0) barKg = _useKg ? rawBar : rawBar * _lbToKg;
+      final barText = (invId == null ? _barCtrl : _getBarCtrl(invId)).text.trim();
+      if (barText.isNotEmpty) {
+        final bRaw = double.tryParse(barText) ?? 0;
+        barKg = _useKg ? bRaw : bRaw * _lbToKg;
+      }
 
       return PlateCalculator.calculate(
         targetWeightKg: targetKg,
-        includeBarWeight: _includeBarWeight,
+        includeBarWeight: incBar,
         barWeightKg: barKg,
-        isDualBar: _isDualBar,
+        isDualBar: isDual,
         availableWeights: availWeights,
       );
     }
@@ -870,22 +1004,21 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
       );
     }
 
-    double totalLoadedKg = res.totalLoadedKgPerSide * 2;
-    if (_isDualBar) totalLoadedKg *= 2;
-    
+    final isDual = invId == null ? _isDualBar : (_isDualBarPerInv[invId] ?? _isDualBar);
+    final isManual = invId == null
+        ? _isManualCalc
+        : (_isManualCalcPerInv[invId] ?? _isManualCalc);
     double barKg = 0;
-    if (!_isManualCalc) {
-        final rawBar = double.tryParse(_barCtrl.text.trim()) ?? 0;
-        if (rawBar > 0) barKg = _useKg ? rawBar : rawBar * _lbToKg;
+    if (!isManual) {
+        final barText = (invId == null ? _barCtrl : _getBarCtrl(invId)).text.trim();
+        if (barText.isNotEmpty) {
+          final bRaw = double.tryParse(barText) ?? 0;
+          barKg = _useKg ? bRaw : bRaw * _lbToKg;
+        }
     }
     
-    double finalTotalKg = totalLoadedKg + (_isManualCalc ? 0 : (barKg * (_isDualBar ? 2 : 1)));
-    if (_isManualCalc) {
-      // Manual mode visualization usually shows total weights only, not the bar, unless they want to add it.
-      // But barbell_visualizer `drawBar` flag can handle this.
-    }
-    
-    final finalTotalStr = _useKg ? '${_fmtKg(finalTotalKg)} kg' : '${_fmtKg(finalTotalKg * _kgToLb)} lb';
+    double finalTotalKg = isManual ? res.perSideKg * (isDual ? 2 : 1) : (res.totalLoadedKgPerSide * 2) * (isDual ? 2 : 1) + barKg * (isDual ? 2 : 1);
+    final totalStr = _useKg ? '${_fmtKg(finalTotalKg)} kg' : '${_fmtKg(finalTotalKg * _kgToLb)} lb';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -897,15 +1030,15 @@ class _AddExerciseScreenState extends State<AddExerciseScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (_isManualCalc) ...[
-            Text('Total Weight: $finalTotalStr', style: const TextStyle(color: AppColors.accent, fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-          ],
+          Text('Total Weight: $totalStr', 
+              style: const TextStyle(color: AppColors.accent, fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
           BarbellVisualizer(
             result: res,
             compact: false,
-            isDualBar: _isDualBar,
-            drawBar: !_isManualCalc,
+            isDualBar: isDual,
+            drawBar: !isManual,
+            useKg: _useKg,
           ),
         ],
       ),

@@ -12,6 +12,10 @@ class Exercise {
   final int? repetitions;
   final int? restTimeSeconds; // rest time in seconds
 
+  // Time-based config
+  final bool needsReps; // true for reps, false for time (duration)
+  final int? durationSeconds; // time per set if needsReps is false
+
   // Bar config
   /// true  → two independent bars, each must reach [targetWeightKg];
   ///         calculator will output "not enough" if inventory is insufficient for both.
@@ -35,6 +39,8 @@ class Exercise {
     this.sets,
     this.repetitions,
     this.restTimeSeconds,
+    this.needsReps = true,
+    this.durationSeconds,
     this.isDualBar = true,
     this.includeBarWeight = false,
     this.poolInventories = true,
@@ -54,6 +60,8 @@ class Exercise {
       'sets': sets,
       'repetition': repetitions,
       'rest_time': restTimeSeconds,
+      'needs_reps': needsReps ? 1 : 0,
+      'duration_seconds': durationSeconds,
       'is_dual_bar': isDualBar ? 1 : 0,
       'include_bar_weight': includeBarWeight ? 1 : 0,
       'pool_inventories': poolInventories ? 1 : 0,
@@ -74,6 +82,8 @@ class Exercise {
       sets: map['sets'] as int?,
       repetitions: map['repetition'] as int?,
       restTimeSeconds: map['rest_time'] as int?,
+      needsReps: (map['needs_reps'] as int? ?? 1) == 1,
+      durationSeconds: map['duration_seconds'] as int?,
       isDualBar: (map['is_dual_bar'] as int? ?? 1) == 1,
       includeBarWeight: (map['include_bar_weight'] as int? ?? 0) == 1,
       poolInventories: (map['pool_inventories'] as int? ?? 1) == 1,
@@ -93,6 +103,8 @@ class Exercise {
     int? sets,
     int? repetitions,
     int? restTimeSeconds,
+    bool? needsReps,
+    int? durationSeconds,
     bool? isDualBar,
     bool? includeBarWeight,
     bool? poolInventories,
@@ -110,6 +122,8 @@ class Exercise {
       sets: sets ?? this.sets,
       repetitions: repetitions ?? this.repetitions,
       restTimeSeconds: restTimeSeconds ?? this.restTimeSeconds,
+      needsReps: needsReps ?? this.needsReps,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
       isDualBar: isDualBar ?? this.isDualBar,
       includeBarWeight: includeBarWeight ?? this.includeBarWeight,
       poolInventories: poolInventories ?? this.poolInventories,

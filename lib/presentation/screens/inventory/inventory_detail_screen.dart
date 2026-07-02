@@ -242,7 +242,7 @@ class _InventoryDetailScreenState extends State<InventoryDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Remove Weight?'),
         content: Text(
-            'Remove ${_fmt(w.weightKg)} kg (×${w.quantity}) from this inventory?'),
+            'Remove ${_fmt(w.weightKg)} kg (${_fmt(w.weightLb, decimals: 2)} lb) ×${w.quantity} from this inventory?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),

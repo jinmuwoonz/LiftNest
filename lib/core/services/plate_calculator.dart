@@ -190,18 +190,28 @@ class PlateCalculator {
   }
 
   /// Calculates a PlateResult directly from manually selected plates.
-  static PlateResult calculateManual(Map<String, dynamic> manualPlatesJson, List<Weight> availableWeights) {
-    final Map<int, int> selected = manualPlatesJson.map((k, v) => MapEntry(int.parse(k), v as int));
+  static PlateResult calculateManual(dynamic manualPlatesRaw, List<Weight> availableWeights) {
     final usage = <PlateUsage>[];
     
-    // To keep them sorted heaviest first, we sort available weights by weightKg descending
-    final sortedWeights = availableWeights.toList()..sort((a, b) => b.weightKg.compareTo(a.weightKg));
-    
-    for (final w in sortedWeights) {
-      if (w.id == null) continue;
-      final count = selected[w.id!];
-      if (count != null && count > 0) {
-        usage.add(PlateUsage(weightKg: w.weightKg, countPerSide: count, colorValue: w.colorValue));
+    if (manualPlatesRaw is List) {
+      for (final rawId in manualPlatesRaw) {
+        final id = rawId is int ? rawId : int.tryParse(rawId.toString());
+        if (id == null) continue;
+        final idx = availableWeights.indexWhere((w) => w.id == id);
+        if (idx != -1) {
+          final w = availableWeights[idx];
+          usage.add(PlateUsage(weightKg: w.weightKg, countPerSide: 1, colorValue: w.colorValue));
+        }
+      }
+    } else if (manualPlatesRaw is Map) {
+      final selected = manualPlatesRaw.map((k, v) => MapEntry(int.parse(k.toString()), v as int));
+      final sortedWeights = availableWeights.toList()..sort((a, b) => b.weightKg.compareTo(a.weightKg));
+      for (final w in sortedWeights) {
+        if (w.id == null) continue;
+        final count = selected[w.id!];
+        if (count != null && count > 0) {
+          usage.add(PlateUsage(weightKg: w.weightKg, countPerSide: count, colorValue: w.colorValue));
+        }
       }
     }
     

@@ -266,6 +266,7 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
             ? selectedInvs.first.name
             : 'Pooled Inventories',
         isDualBar: _isDualBar,
+        useKg: _useKg,
       );
     }
 
@@ -288,6 +289,7 @@ class _QuickCalculatorScreenState extends State<QuickCalculatorScreen> {
                   showPageHint: _individualResults!.length > 1,
                   pageIndex: i,
                   pageCount: _individualResults!.length,
+                  useKg: _useKg,
                 ),
               ),
             ),
@@ -412,6 +414,7 @@ class _ResultCard extends StatelessWidget {
   final bool showPageHint;
   final int pageIndex;
   final int pageCount;
+  final bool useKg;
 
   const _ResultCard({
     required this.result,
@@ -420,6 +423,7 @@ class _ResultCard extends StatelessWidget {
     this.showPageHint = false,
     this.pageIndex = 0,
     this.pageCount = 1,
+    required this.useKg,
   });
 
   @override
@@ -468,6 +472,7 @@ class _ResultCard extends StatelessWidget {
             result: result,
             compact: false,
             isDualBar: isDualBar,
+            useKg: useKg,
           ),
 
           if (result.isOk && result.perSideKg > 0) ...[
@@ -487,7 +492,7 @@ class _ResultCard extends StatelessWidget {
                         size: 14, color: AppColors.accent),
                     const SizedBox(width: 6),
                     Text(
-                      'Per side: ${_fmt(result.perSideKg)} kg',
+                      'Per side: ${useKg ? _fmt(result.perSideKg) : _fmt(result.perSideKg * 2.20462)} ${useKg ? 'kg' : 'lb'}',
                       style: const TextStyle(
                           color: AppColors.accent,
                           fontSize: 13,

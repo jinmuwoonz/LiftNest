@@ -12,7 +12,7 @@ import '../models/workout.dart';
 /// CRUD operations for LiftNest.
 class DatabaseHelper {
   static const String _databaseName = 'liftnest.db';
-  static const int _databaseVersion = 6;
+  static const int _databaseVersion = 7;
 
   // ── Table names ──────────────────────────────────────────────────────────
   static const String tableWorkout = 'Workout';
@@ -66,6 +66,15 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN target_weight_lb REAL');
       await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN manual_plates_json TEXT');
     }
+    if (oldVersion < 7) {
+      await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN is_dual_bar INTEGER');
+      await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN include_bar_weight INTEGER');
+      await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN bar_weight_kg REAL');
+      await db.execute('ALTER TABLE $tableExerciseInventory ADD COLUMN bar_weight_lb REAL');
+      
+      await db.execute('ALTER TABLE $tableExercise ADD COLUMN needs_reps INTEGER NOT NULL DEFAULT 1');
+      await db.execute('ALTER TABLE $tableExercise ADD COLUMN duration_seconds INTEGER');
+    }
   }
 
   /// Enable foreign-key enforcement (disabled by default in SQLite).
@@ -99,6 +108,8 @@ class DatabaseHelper {
         bar_weight_kg       REAL,
         bar_weight_lb       REAL,
         needs_weight        INTEGER NOT NULL DEFAULT 1,
+        needs_reps          INTEGER NOT NULL DEFAULT 1,
+        duration_seconds    INTEGER,
         manual_plates_json  TEXT
       )
     ''');
@@ -131,6 +142,10 @@ class DatabaseHelper {
         inventory_id       INTEGER NOT NULL,
         target_weight_kg   REAL,
         target_weight_lb   REAL,
+        is_dual_bar        INTEGER,
+        include_bar_weight INTEGER,
+        bar_weight_kg      REAL,
+        bar_weight_lb      REAL,
         manual_plates_json TEXT,
         FOREIGN KEY (exercise_id)  REFERENCES $tableExercise  (id)
           ON DELETE CASCADE,
